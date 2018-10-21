@@ -5,6 +5,7 @@ import stat
 import subprocess
 
 from cx_Freeze.common import normalize_to_list
+from cx_Freeze import darwintools
 
 __all__ = ["bdist_dmg", "bdist_mac"]
 
@@ -170,6 +171,144 @@ class bdist_mac(Command):
                             filename))
 
     def setRelativeReferencePaths(self):
+        #self.setRelativeReferencePaths_old()
+        self.setRelativeReferencePaths_new()
+        return
+
+
+    def setRelativeReferencePaths_new(self):
+        """ Create a list of all the Mach-O binaries in Contents/MacOS.
+            Then, check if they contain references to other files in
+            that dir. If so, make those references relative. """
+        fileNames = set()  # a list of all the base file names of files included in app
+        filePaths = []  # a list of all the relative paths (from self.binDir) of files included in app
+        filePathDict = {}  # a dictionary, indexed base base filename, of relative paths
+        fcount = 0
+        for root, dirs, dir_files in os.walk(self.binDir):
+            for f in dir_files:
+                fcount += 1
+                if darwintools.isMachOFile(os.path.join(root, f)):
+                    filePath = os.path.join(root, f).replace(self.binDir + "/", "")
+                    fileName = os.path.basename(filePath)
+                    filePaths.append(filePath)
+                    fileNames.add(fileName)
+                    if fileName not in filePathDict: filePathDict[fileName] = []
+                    filePathDict[fileName].append(filePath)
+                    pass
+                pass
+
+        # Report summary information about included files
+        frequencyLists = {}
+        for fn in filePathDict:
+            n = len(filePathDict[fn])
+            if n not in frequencyLists: frequencyLists[n] = []
+            frequencyLists[n].append(fn)
+            pass
+
+        print("Number of files in bindir: {}".format(fcount))
+        print("Number of Mach-O files:    {}".format(len(filePaths)))
+        print("Distinct file names:       {}".format(len(fileNames)))
+        frequencies = sorted(frequencyLists.keys())
+        for n in frequencies:
+            if n < 2: continue
+            print("Number of files included {} time(s): {}\n({})\n".format(n, len(frequencyLists[n]), frequencyLists[n]))
+
+        # TODO: Need to add some code so that if two copies of a library are included, the references all point to the same one.
+
+        for fileRelativePath in filePaths:
+
+            fileAbsolutePath = os.path.abspath(os.path.join(self.binDir, fileRelativePath))
+
+            rpaths = None
+
+            # print("Handling file: {} ({})".format(fileRelativePath, fileAbsolutePath))
+
+            # ensure write on the Mach-O file, so we can update it.
+            mode = os.stat(fileAbsolutePath).st_mode
+            if not (mode & stat.S_IWUSR):
+                os.chmod(fileAbsolutePath, mode | stat.S_IWUSR)
+
+            referencedPaths = darwintools.getReferencedLibraries(filePath=fileAbsolutePath)
+
+            for reference in referencedPaths:
+                referenceBaseName = os.path.basename(reference)
+
+                # ignore files in /usr or /System
+                if reference.startswith("/usr") or reference.startswith("/System"):
+                    continue
+
+                # ignore if starts with @executable_path, and it points to a file in bindir
+                if reference.startswith("@executable_path/"):
+                    relativeReference = reference.replace("@executable_path/","",1)
+                    if relativeReference in filePaths: continue
+                    pass
+
+                # deal with files that start with rpaths?
+                if reference.startswith("@rpath/"):
+                    if rpaths is None:  # find the rpaths for this file, if we have not done so already
+                        rpaths = darwintools.getRPathsFromFile(filePath=fileAbsolutePath,
+                                                                   loaderPath=os.path.dirname(fileRelativePath))
+                        # print("{}: RPaths calculated: {}".format(fileRelativePath, rpaths))
+                        pass
+
+                    # check if any of the rpath completions result in an item in files list
+                    newPaths = darwintools.getAlternativeRPathReplacements(path=reference, rpaths=rpaths)
+                    localReferencedFile = None
+                    for np in newPaths:
+                        if np in filePaths:
+                            localReferencedFile = np
+                            break
+                        pass
+                    if localReferencedFile is not None:
+                        newReference = "@executable_path/" + localReferencedFile
+                        print("{}: RPath reference {} -> {}.".format(fileRelativePath, reference, newReference))
+                        darwintools.changeLoadReference(fileName=fileAbsolutePath,
+                                                        oldReference=reference, newReference=newReference,
+                                                        VERBOSE=False)
+                        continue
+
+                    # check if any of the rpath completions otherwise point to an actual file
+                    matchFound = False
+                    for np in newPaths:
+                        if os.path.isfile(np):
+                            print("{}: RPath points to outside file {} points to {}.".format(fileRelativePath, reference, np))
+                            matchFound = True
+                            break
+                        pass
+                    if matchFound: continue
+
+                # deal with other cases where the basename is something we have seen -- we will guess that (one of) the copy
+                # included in the bindir is what we want to link to
+                if referenceBaseName in fileNames:
+                    newReference = "@executable_path/" + filePathDict[referenceBaseName][0]
+                    if len(filePathDict[referenceBaseName]) > 1:
+                        print("{}: resolved RPath reference (AMBIGUOUS) {} -> {}".format(fileRelativePath, reference, newReference))
+                    else:
+                        #print("{}: resolved RPath reference (only option) {} -> {}".format(fileRelativePath, reference, newReference))
+                        pass
+
+                    darwintools.changeLoadReference(fileName=fileAbsolutePath,
+                                                    oldReference=reference, newReference=newReference,
+                                                    VERBOSE=False)
+                    continue
+
+                # deal with other absolute paths
+                if reference.startswith("/"):
+                    if os.path.isfile(reference):
+                        print("{}: File \"{}\" was referenced but not included in bindir.".format(fileRelativePath, reference))
+                        continue
+
+                if not os.path.isfile(reference):
+                    print("{}: Skipping unknown file: {}".format(fileRelativePath, reference))
+                    continue
+
+                print("{}: ERROR -- Reference not handled: {}".format(fileRelativePath, reference))
+                pass
+
+        return
+
+
+    def setRelativeReferencePaths_old(self):
         """ Create a list of all the Mach-O binaries in Contents/MacOS.
             Then, check if they contain references to other files in
             that dir. If so, make those references relative. """
@@ -180,9 +319,13 @@ class bdist_mac(Command):
                 if "Mach-O" in p.stdout.readline().decode():
                     files.append(os.path.join(root, f).replace(self.binDir + "/", ""))
 
+
         for fileName in files:
 
             filePath = os.path.join(self.binDir, fileName)
+            # print("Processing {}".format(filePath))
+
+            fileRPaths = None
 
             # ensure write permissions
             mode = os.stat(filePath).st_mode
@@ -202,21 +345,58 @@ class bdist_mac(Command):
 
                 # find the actual referenced file name
                 referencedFile = reference.decode().strip().split()[0]
+                referencedFile_fixed = referencedFile
 
                 if referencedFile.startswith('@executable_path'):
                     # the referencedFile is already a relative path (to the executable)
                     continue
 
                 if self.rpath_lib_folder is not None:
-                    referencedFile = str(referencedFile).replace("@rpath", self.rpath_lib_folder)
+                    referencedFile_fixed = str(referencedFile).replace("@rpath", self.rpath_lib_folder)
+
+                #XXX - this is not working because filePath is not an absolute path -- it is a relative path starting at build/
+                #   ==> even when @rpath is replaced by filePath it is not an absolute path
+                # Deal with situations where the referencedFile path contains an @rpath
+                # First we use the rpaths in the file to see if they point towards a file included in the binary directory,
+                # and in that case point to that.
+                if False and referencedFile.find("@rpath") == 0:
+                    print("Dealing with referenced: {}".format(referencedFile))
+                    if fileRPaths is None:  # find the rpaths for this file, if we have not done so already
+                        fileRPaths = darwintools.getRPathsFromFile(filePath=filePath)
+                        print("RPATHS: {}".format(fileRPaths))
+                        pass
+
+                    # check if any of the rpath completions result in an item in files list
+                    newPaths = darwintools.getAlternativeRPathReplacements(path=filePath, rpaths=fileRPaths)
+                    localReferencedFile = None
+                    for np in newPaths:
+                        if np in files:
+                            localReferencedFile = np
+                            break
+                        pass
+                    if localReferencedFile is not None:
+                        darwintools.changeLoadReference(fileName=filePath,
+                                                        oldReference=referencedFile,
+                                                        newReference="@executable_path/"+localReferencedFile)
+                        continue
+
+                    # check if any of the rpath completions otherwise point to an actual file
+                    for np in newPaths:
+                        if os.path.isfile(np):
+                            referencedFile_fixed = np
+                            break
+                        pass
+
+                    print("Concluded reference is: {}:".format(localReferencedFile))
+                    pass
 
                 # the output of otool on archive contain self referencing
                 # content inside parantheses.
-                if not os.path.exists(referencedFile):
+                if not os.path.exists(referencedFile_fixed):
                     print("skip unknown file {} ".format(referencedFile))
                     continue
 
-                path, name = os.path.split(referencedFile)
+                path, name = os.path.split(referencedFile_fixed)
 
                 #some referenced files have not previously been copied to the
                 #executable directory - the assumption is that you don't need
@@ -224,11 +404,11 @@ class bdist_mac(Command):
                 #/opt this fix should probably be elsewhere though
                 if (name not in files and not path.startswith('/usr') and not
                         path.startswith('/System')):
-                    print(referencedFile)
+                    print("Attemping to copy additional file: {}".format(referencedFile_fixed))
                     try:
-                        self.copy_file(referencedFile, os.path.join(self.binDir, name))
+                        self.copy_file(referencedFile_fixed, os.path.join(self.binDir, name))
                     except DistutilsFileError as e:
-                        print("issue copying {} to {} error {} skipping".format(referencedFile, os.path.join(self.binDir, name), e))
+                        print("issue copying {} to {} error {} skipping".format(referencedFile_fixed, os.path.join(self.binDir, name), e))
                     else:
                         files.append(name)
 
@@ -236,8 +416,12 @@ class bdist_mac(Command):
                 # if so, change the reference
                 if name in files:
                     newReference = '@executable_path/' + name
-                    subprocess.call(('install_name_tool', '-change',
-                                    referencedFile, newReference, filePath))
+                    darwintools.changeLoadReference(fileName=filePath, oldReference=referencedFile, newReference=newReference)
+                    pass
+                pass
+            pass
+        return
+
 
     def find_qt_menu_nib(self):
         """Returns a location of a qt_menu.nib folder, or None if this is not
