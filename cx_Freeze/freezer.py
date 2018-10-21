@@ -18,6 +18,9 @@ import time
 import zipfile
 
 import cx_Freeze
+from cx_Freeze import darwintools
+
+from typing import List
 
 __all__ = [ "ConfigError", "ConstantsModule", "Executable", "Freezer" ]
 
@@ -329,10 +332,15 @@ class Freezer(object):
                     # cx_Freeze on OSX in e.g. a conda-based distribution.
                     # Note that with @rpath we just assume Python's lib dir,
                     # which should work in most cases.
-                    dependentFiles = [p.replace('@loader_path', dirname)
+
+                    # TODO: the following mechanism is incomlete and should be expanded.  In particular, we should keep a
+                    # stack of all of the rpaths specified by earlier files in the dependence chain.
+                    rpaths = darwintools.getRPathsFromFile(filePath=path)
+
+                    dependentFiles = [darwintools.tryToMakePathAbsolute(path=p, rpaths=rpaths, loaderPath=dirname)
                                       for p in dependentFiles]
-                    dependentFiles = [p.replace('@rpath', sys.prefix + '/lib')
-                                      for p in dependentFiles]
+                    pass
+
             dependentFiles = self.dependentFiles[path] = \
                     [self._CheckDependentFile(f, dirname) \
                             for f in dependentFiles if self._ShouldCopyFile(f)]

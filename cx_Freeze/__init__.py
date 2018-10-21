@@ -10,6 +10,7 @@ elif sys.platform == "darwin":
 from cx_Freeze.finder import *
 from cx_Freeze.freezer import *
 from cx_Freeze.main import *
+import cx_Freeze.darwintools
 
 del dist
 del finder
