@@ -171,8 +171,8 @@ class bdist_mac(Command):
                             filename))
 
     def setRelativeReferencePaths(self):
-        #self.setRelativeReferencePaths_old()
-        self.setRelativeReferencePaths_new()
+        self.setRelativeReferencePaths_old()
+        #self.setRelativeReferencePaths_new()
         return
 
 
@@ -310,8 +310,8 @@ class bdist_mac(Command):
 
     def setRelativeReferencePaths_old(self):
         """ Create a list of all the Mach-O binaries in Contents/MacOS.
-            Then, check if they contain references to other files in
-            that dir. If so, make those references relative. """
+        Then, check if they contain references to other files in
+        that dir. If so, make those references relative. """
         files = []
         for root, dirs, dir_files in os.walk(self.binDir):
             for f in dir_files:
@@ -319,13 +319,9 @@ class bdist_mac(Command):
                 if "Mach-O" in p.stdout.readline().decode():
                     files.append(os.path.join(root, f).replace(self.binDir + "/", ""))
 
-
         for fileName in files:
 
             filePath = os.path.join(self.binDir, fileName)
-            # print("Processing {}".format(filePath))
-
-            fileRPaths = None
 
             # ensure write permissions
             mode = os.stat(filePath).st_mode
@@ -345,58 +341,21 @@ class bdist_mac(Command):
 
                 # find the actual referenced file name
                 referencedFile = reference.decode().strip().split()[0]
-                referencedFile_fixed = referencedFile
 
                 if referencedFile.startswith('@executable_path'):
                     # the referencedFile is already a relative path (to the executable)
                     continue
 
                 if self.rpath_lib_folder is not None:
-                    referencedFile_fixed = str(referencedFile).replace("@rpath", self.rpath_lib_folder)
-
-                #XXX - this is not working because filePath is not an absolute path -- it is a relative path starting at build/
-                #   ==> even when @rpath is replaced by filePath it is not an absolute path
-                # Deal with situations where the referencedFile path contains an @rpath
-                # First we use the rpaths in the file to see if they point towards a file included in the binary directory,
-                # and in that case point to that.
-                if False and referencedFile.find("@rpath") == 0:
-                    print("Dealing with referenced: {}".format(referencedFile))
-                    if fileRPaths is None:  # find the rpaths for this file, if we have not done so already
-                        fileRPaths = darwintools.getRPathsFromFile(filePath=filePath)
-                        print("RPATHS: {}".format(fileRPaths))
-                        pass
-
-                    # check if any of the rpath completions result in an item in files list
-                    newPaths = darwintools.getAlternativeRPathReplacements(path=filePath, rpaths=fileRPaths)
-                    localReferencedFile = None
-                    for np in newPaths:
-                        if np in files:
-                            localReferencedFile = np
-                            break
-                        pass
-                    if localReferencedFile is not None:
-                        darwintools.changeLoadReference(fileName=filePath,
-                                                        oldReference=referencedFile,
-                                                        newReference="@executable_path/"+localReferencedFile)
-                        continue
-
-                    # check if any of the rpath completions otherwise point to an actual file
-                    for np in newPaths:
-                        if os.path.isfile(np):
-                            referencedFile_fixed = np
-                            break
-                        pass
-
-                    print("Concluded reference is: {}:".format(localReferencedFile))
-                    pass
+                    referencedFile = str(referencedFile).replace("@rpath", self.rpath_lib_folder)
 
                 # the output of otool on archive contain self referencing
                 # content inside parantheses.
-                if not os.path.exists(referencedFile_fixed):
+                if not os.path.exists(referencedFile):
                     print("skip unknown file {} ".format(referencedFile))
                     continue
 
-                path, name = os.path.split(referencedFile_fixed)
+                path, name = os.path.split(referencedFile)
 
                 #some referenced files have not previously been copied to the
                 #executable directory - the assumption is that you don't need
@@ -404,11 +363,11 @@ class bdist_mac(Command):
                 #/opt this fix should probably be elsewhere though
                 if (name not in files and not path.startswith('/usr') and not
                         path.startswith('/System')):
-                    print("Attemping to copy additional file: {}".format(referencedFile_fixed))
+                    print(referencedFile)
                     try:
-                        self.copy_file(referencedFile_fixed, os.path.join(self.binDir, name))
+                        self.copy_file(referencedFile, os.path.join(self.binDir, name))
                     except DistutilsFileError as e:
-                        print("issue copying {} to {} error {} skipping".format(referencedFile_fixed, os.path.join(self.binDir, name), e))
+                        print("issue copying {} to {} error {} skipping".format(referencedFile, os.path.join(self.binDir, name), e))
                     else:
                         files.append(name)
 
@@ -416,11 +375,8 @@ class bdist_mac(Command):
                 # if so, change the reference
                 if name in files:
                     newReference = '@executable_path/' + name
-                    darwintools.changeLoadReference(fileName=filePath, oldReference=referencedFile, newReference=newReference)
-                    pass
-                pass
-            pass
-        return
+                    subprocess.call(('install_name_tool', '-change',
+                                    referencedFile, newReference, filePath))
 
 
     def find_qt_menu_nib(self):
