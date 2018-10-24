@@ -96,7 +96,8 @@ class bdist_mac(Command):
             'codesign\'s --resource-rules option.'),
         ('absolute-reference-path=', None, 'Path to use for all referenced ' \
             'libraries instead of @executable_path.'),
-        ('rpath-lib-folder', None, 'replace @rpath with given folder for any files')
+        ('rpath-lib-folder', None, 'replace @rpath with given folder for any files'),
+        ('new-relativizer', None, 'use new code for relativizing dependencies')
     ]
 
     def initialize_options(self):
@@ -112,9 +113,14 @@ class bdist_mac(Command):
         self.codesign_resource_rules = None
         self.absolute_reference_path = None
         self.rpath_lib_folder = None
+        self.new_relativizer = None
 
     def finalize_options(self):
         self.include_frameworks = normalize_to_list(self.include_frameworks)
+        if self.new_relativizer is None:
+            self.new_relativizer = False
+        else:
+            self.new_relativizer = True
 
     def create_plist(self):
         """Create the Contents/Info.plist file"""
@@ -171,8 +177,10 @@ class bdist_mac(Command):
                             filename))
 
     def setRelativeReferencePaths(self):
-        self.setRelativeReferencePaths_old()
-        #self.setRelativeReferencePaths_new()
+        if self.new_relativizer:
+            self.setRelativeReferencePaths_new()
+        else:
+            self.setRelativeReferencePaths_old()
         return
 
 
