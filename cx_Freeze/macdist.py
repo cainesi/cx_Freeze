@@ -9,6 +9,7 @@ from cx_Freeze import darwintools
 
 __all__ = ["bdist_dmg", "bdist_mac"]
 
+DO_LOGGING = False
 
 class bdist_dmg(Command):
     description = "create a Mac DMG disk image containing the Mac " \
@@ -222,9 +223,11 @@ class bdist_mac(Command):
             print("Number of files included {} time(s): {}\n({})\n".format(n, len(frequencyLists[n]), frequencyLists[n]))
 
         # TODO: Need to add some code so that if two copies of a library are included, the references all point to the same one.
+        if DO_LOGGING: logFile = open(os.path.join(os.path.expanduser("~"),"Desktop/cxlog.txt"),"w")
+
 
         for fileRelativePath in filePaths:
-
+            if DO_LOGGING: logFile.write("{}\n".format(fileRelativePath))
             fileAbsolutePath = os.path.abspath(os.path.join(self.binDir, fileRelativePath))
 
             rpaths = None
@@ -239,6 +242,7 @@ class bdist_mac(Command):
             referencedPaths = darwintools.getReferencedLibraries(filePath=fileAbsolutePath)
 
             for reference in referencedPaths:
+                if DO_LOGGING: logFile.write("   {}\n".format(reference))
                 referenceBaseName = os.path.basename(reference)
 
                 # ignore files in /usr or /System
@@ -313,6 +317,7 @@ class bdist_mac(Command):
                 print("{}: ERROR -- Reference not handled: {}".format(fileRelativePath, reference))
                 pass
 
+        if DO_LOGGING: logFile.close()
         return
 
 
