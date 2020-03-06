@@ -19,6 +19,9 @@ import zipfile
 
 import cx_Freeze
 
+from cx_Freeze.tracing import CopyTrace
+from typing import List, Dict
+
 __all__ = [ "ConfigError", "ConstantsModule", "Executable", "Freezer" ]
 
 def process_path_specs(specs):
@@ -105,6 +108,7 @@ class Freezer(object):
         self.zipIncludePackages = list(zipIncludePackages)
         self.zipExcludePackages = list(zipExcludePackages)
         self._VerifyConfiguration()
+        self.traces: Dict[str: List[CopyTrace]] = {}
 
     def _AddVersionResource(self, exe):
         warning_msg = "*** WARNING *** unable to create version resource"
@@ -129,9 +133,16 @@ class Freezer(object):
         stamp(fileName, versionInfo)
 
     def _CopyFile(self, source, target, copyDependentFiles,
-            includeMode = False, relativeSource = False):
+                includeMode = False, relativeSource = False,
+                  trace: CopyTrace=None):
         normalizedSource = os.path.normcase(os.path.normpath(source))
         normalizedTarget = os.path.normcase(os.path.normpath(target))
+        if trace is not None:
+            if normalizedTarget in self.traces:
+                self.traces[normalizedTarget].append(trace)
+            else:
+                self.traces[normalizedTarget] = [trace]
+            pass
         if normalizedTarget in self.filesCopied:
             return
         if normalizedSource == normalizedTarget:
@@ -161,7 +172,8 @@ class Freezer(object):
                 else:
                     target = os.path.join(targetDir, os.path.basename(source))
                 self._CopyFile(source, target, copyDependentFiles,
-                               relativeSource=relativeSource)
+                               relativeSource=relativeSource,
+                               trace=CopyTrace(reason="Binary dependency from: \"{}\"".format(source), predecessor=trace))
 
     def _CreateDirectory(self, path):
         if not os.path.isdir(path):
@@ -190,7 +202,8 @@ class Freezer(object):
                                copyDependentFiles=True, includeMode=True)
         else:
             self._CopyFile(exe.base, exe.targetName,
-                           copyDependentFiles=True, includeMode=True)
+                           copyDependentFiles=True, includeMode=True,
+                           trace=CopyTrace(reason="_FreezeExecutable"))
         if not os.access(exe.targetName, os.W_OK):
             mode = os.stat(exe.targetName).st_mode
             os.chmod(exe.targetName, mode | stat.S_IWUSR)
@@ -207,7 +220,8 @@ class Freezer(object):
                 targetName = os.path.join(os.path.dirname(exe.targetName),
                                           os.path.basename(exe.icon))
                 self._CopyFile(exe.icon, targetName,
-                               copyDependentFiles=False)
+                               copyDependentFiles=False,
+                               trace=CopyTrace(reason="_FreezeExecutable(copy icon)"))
 
         if self.metadata is not None and sys.platform == "win32":
             self._AddVersionResource(exe)
@@ -369,7 +383,8 @@ class Freezer(object):
                         continue
                     targetName = os.path.join(targetDir, otherName)
                     self._CopyFile(sourceName, targetName,
-                            copyDependentFiles = False)
+                            copyDependentFiles = False,
+                                   trace=CopyTrace(reason="_IncludeMSVCR"))
                 break
 
     def _PrintReport(self, fileName, modules):
@@ -554,7 +569,8 @@ class Freezer(object):
                     parts.append(os.path.basename(module.file))
                     targetName = os.path.join(targetDir, *parts)
                     self._CopyFile(module.file, targetName,
-                            copyDependentFiles = True)
+                            copyDependentFiles = True,
+                                   trace=CopyTrace(reason="_WriteModules[{}/{}]".format(module.name, parts)))
                 else:
                     if module.path is not None:
                         parts.append("__init__")
@@ -595,9 +611,26 @@ class Freezer(object):
                     path = os.pathsep.join([origPath] + module.parent.path)
                     os.environ["PATH"] = path
                 self._CopyFile(module.file, target, copyDependentFiles=True,
-                               relativeSource=(sys.platform == "linux"))
+                               relativeSource=(sys.platform == "linux"),
+                               trace=CopyTrace(reason="_WriteModules[extension module/{}]".format(module.name)))
             finally:
                 os.environ["PATH"] = origPath
+
+    def printTraceReport(self):
+        """Print out a report of why files in the package were included."""
+        reportLevel = 2
+        for copiedFile in self.traces:
+            if len(self.traces[copiedFile]) == 1:
+                trace: CopyTrace = self.traces[copiedFile][0]
+                print("{}: {}".format(copiedFile, trace.reportString(level=reportLevel)))
+                pass
+            else:
+                print("{}:".format(copiedFile))
+                for trace in self.traces[copiedFile]:
+                    print("    {}".format(trace.reportString(level=reportLevel)))
+                pass
+            pass
+        return
 
     def Freeze(self):
         self.finder = None
@@ -635,13 +668,15 @@ class Freezer(object):
                         fullSourceName = os.path.join(path, fileName)
                         fullTargetName = os.path.join(fullTargetDir, fileName)
                         self._CopyFile(fullSourceName, fullTargetName,
-                                copyDependentFiles = True)
+                                copyDependentFiles = True,
+                                       trace=CopyTrace(reason="include_files(dir)"))
             else:
                 # Copy regular files.
                 fullName = os.path.join(targetDir, targetFileName)
                 self._CopyFile(sourceFileName, fullName,
-                        copyDependentFiles = True)
-
+                        copyDependentFiles = True,
+                               trace=CopyTrace(reason="include_files(dir)"))
+        self.printTraceReport()
 
 class ConfigError(Exception):
 
