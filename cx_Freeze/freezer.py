@@ -626,17 +626,12 @@ class Freezer(object):
 
     def printTraceReport(self):
         """Print out a report of why files in the package were included."""
-        reportLevel = 2
+        print("** Trace Report **")
+        reportLevel = 1
         for copiedFile in self.traces:
-            if len(self.traces[copiedFile]) == 1:
-                trace: CopyTrace = self.traces[copiedFile][0]
-                print("{}: {}".format(copiedFile, trace.reportString(level=reportLevel)))
-                pass
-            else:
-                print("{}:".format(copiedFile))
-                for trace in self.traces[copiedFile]:
-                    print("    {}".format(trace.reportString(level=reportLevel)))
-                pass
+            print("{}:".format(copiedFile))
+            for trace in self.traces[copiedFile]:
+                print("    {}".format(trace.reportString(level=reportLevel)))
             pass
         return
 
