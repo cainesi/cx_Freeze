@@ -624,15 +624,20 @@ class Freezer(object):
             finally:
                 os.environ["PATH"] = origPath
 
-    def printTraceReport(self):
+    def traceReportString(self) -> str:
         """Print out a report of why files in the package were included."""
-        print("** Trace Report **")
+        l = []
+        l.append("** Trace Report **")
         reportLevel = 1
         for copiedFile in self.traces:
-            print("{}:".format(copiedFile))
+            l.append("{}:".format(copiedFile))
             for trace in self.traces[copiedFile]:
-                print("    {}".format(trace.reportString(level=reportLevel)))
+                l.append("    {}".format(trace.reportString(level=reportLevel)))
             pass
+        return "\n".join(l)
+
+    def printTraceReport(self):
+        print(self.traceReportString())
         return
 
     def Freeze(self):
