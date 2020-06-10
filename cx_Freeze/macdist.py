@@ -177,7 +177,7 @@ class bdist_mac(Command):
 
         #TODO: Do an initial pass through the DarwinFiles to see if any references on DarwinFiles copied into the
         # bundle that were not already set--in which case we set them?
-
+        print("Setting relative reference paths")
         for mf in self.darwinFiles:
             relativeMFDest = os.path.relpath(mf.copyDestinationPath, buildDir)
             filePathInBinDir = os.path.join(binDir, relativeMFDest)
@@ -188,6 +188,7 @@ class bdist_mac(Command):
                 absoluteDest = targFile.copyDestinationPath  # this is the absolute in the build directory
                 relativeDest = os.path.relpath(absoluteDest, buildDir)
                 exePath = "@executable_path/{}".format(relativeDest)
+                print("{}: {}->{}".format(filePathInBinDir,rawPath,exePath))
                 changeLoadReference(filePathInBinDir,oldReference=rawPath,newReference=exePath, VERBOSE=False)
                 pass
             pass

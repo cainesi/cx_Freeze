@@ -627,12 +627,14 @@ class Freezer(object):
     def traceReportString(self) -> str:
         """Print out a report of why files in the package were included."""
         l = []
+        l.append("")
         l.append("** Trace Report **")
         reportLevel = 1
         for copiedFile in self.traces:
             l.append("{}:".format(copiedFile))
             for trace in self.traces[copiedFile]:
                 l.append("    {}".format(trace.reportString(level=reportLevel)))
+            l.append("")
             pass
         return "\n".join(l)
 
