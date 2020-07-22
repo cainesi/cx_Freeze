@@ -8,6 +8,8 @@ from cx_constants_buildtime import KEY_FILENAME, USERNAME
 
 PACKAGENAME = "TEST"
 
+INCLUDE_QT = True  # whether to include certain PyQT-related files
+
 print("**\n** Starting CX setup script (OSX) **\n**")
 print("cx constants\n key_filename: {}\n username: {}".format(KEY_FILENAME, USERNAME))
 
@@ -27,6 +29,9 @@ requiredPlugins = [
     "sqldrivers/libqsqlite.dylib",
     "printsupport/libcocoaprintersupport.dylib"
 ]
+
+if not INCLUDE_QT: requiredPlugins = []
+
 include_files += getQtPluginIncludes(pluginList=requiredPlugins)
 
 keyFiles = []
@@ -38,6 +43,11 @@ build_options = {"build_exe":"cx_build/",  # subdirectory to do build in
 zip_include_packages = ["PyQt5"]  # Cause the PyQt5 to be included in the package in the old way (only specifically required files).  This makes the package *much* smaller.
 extraPackages = ["PyQt5.sip"]  # force PyQt5.sip to be included.
 
+if not INCLUDE_QT:
+    zip_include_packages = []
+    extraPackages = []
+
+
 build_exe_options = { "include_files": include_files,
                       "zip_include_packages": zip_include_packages,
                       "packages": extraPackages,
@@ -48,7 +58,9 @@ build_exe_options = { "include_files": include_files,
 #bdist_msi_options = { "upgrade_code": upgrade_code, "data": msi_data}
 
 bdist_mac_options = {
+    #"iconfile":"resources/app_icon_1024.icns", #Note these options were not added until after cx_Freeze version 4.3.1
     "bundle_name": "BLine",
+    #"new_relativizer": True  # whether to use the new code I prepared in cx_Freeze for relativizing dependency names in the app.
 }
 
 bdist_dmg_options = {
@@ -57,10 +69,8 @@ bdist_dmg_options = {
 }
 
 #print version
-#exe = Executable(script = "../Blackliner/blineapp.py")  # , icon=os.path.join("resources","app_icon_2_512.icns"))
-
+# exe = Executable(script = "../Blackliner/blineapp.py")  # , icon=os.path.join("resources","app_icon_2_512.icns"))
 exe = Executable(script = "test.py")
-
 
 setup(  name = "BLine application",
         author = "Ian Caines",
