@@ -238,6 +238,7 @@ class Freezer:
 
         # Ensure the copy of default python libraries
         dependent_files = set()
+        # NOTE: We cannot just seed the files-to-copy list with exe.base and sys.executable directly, because those files are copied in a special way below.
         dependent_files.update(self._GetDependentFiles(exe.base))
         dependent_files.update(self._GetDependentFiles(sys.executable))
         for name in self._GetDefaultBinIncludes():
@@ -377,6 +378,7 @@ class Freezer:
         limit this list by the exclusion lists as needed"""
         path = os.path.normcase(path)
         dependentFiles = self.dependentFiles.get(path, [])
+        #TODO: fix this, following code woudl run many times if a fie has no dependencies
         if not dependentFiles:
             if sys.platform == "win32":
                 if path.endswith((".exe", ".dll", ".pyd")):
