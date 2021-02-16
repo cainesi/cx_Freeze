@@ -30,6 +30,7 @@ from .common import (
 )
 from .darwintools import DarwinFile, MachOReference, DarwinFileTracker
 from .finder import ModuleFinder
+from .filecopier import FileCopier
 
 if sys.platform == "win32":
     import cx_Freeze.util
@@ -77,6 +78,8 @@ class Freezer:
         self.path = path
         self.includeMSVCR = includeMSVCR
         self.targetDir = targetDir
+        self.file_copier: FileCopier = FileCopier()
+
         binIncludes = self._GetDefaultBinIncludes() + list(binIncludes or [])
         self.binIncludes = [os.path.normcase(n) for n in binIncludes]
         binExcludes = self._GetDefaultBinExcludes() + list(binExcludes or [])
@@ -271,14 +274,22 @@ class Freezer:
                 # calculate the appropriate rpath.
                 # (We only cache one reference.)
                 cachedReference = self.darwinTracker.getCachedReferenceTo(sourcePath=source)
+                self.file_copier.mark_file_to_copy(
+                    from_path=source,
+                    to_rel_path=os.path.relpath(target, self.targetDir))
                 self._CopyFile( source, target,
                                 copyDependentFiles=True, includeMode=True,
                                 machOReference=cachedReference )
             else:
+                self.file_copier.mark_file_to_copy( from_path=source,
+                                                    to_rel_path=os.path.basename(source))
                 self._CopyFile(
                     source, target, copyDependentFiles=True, includeMode=True
                 )
         target_path = os.path.join(self.targetDir, exe.target_name)
+        self.file_copier.mark_file_to_copy(from_path=exe.base,
+                                           to_rel_path=exe.target_name,
+                                           force_write_access=True)
         self._CopyFile(
             exe.base,
             target_path,
@@ -315,6 +326,8 @@ class Freezer:
                 target_icon = os.path.join(
                     self.targetDir, os.path.basename(exe.icon)
                 )
+                self.file_copier.mark_file_to_copy(from_path=exe.icon,
+                                                   to_rel_path=os.path.basename(exe.icon))
                 self._CopyFile(exe.icon, target_icon, copyDependentFiles=False)
 
         if self.metadata is not None and sys.platform == "win32":
@@ -479,6 +492,9 @@ class Freezer:
                     if not os.path.exists(sourceName):
                         continue
                     target_name = os.path.join(targetDir, otherName)
+                    self.file_copier.mark_file_to_copy(from_path=sourceName,
+                                                       to_rel_path=otherName,
+                                                       force_write_access=True)
                     self._CopyFile(
                         sourceName, target_name, copyDependentFiles=False
                     )
@@ -639,6 +655,21 @@ class Freezer:
                 parts = module.name.split(".")
                 targetPackageDir = os.path.join(targetDir, *parts)
                 sourcePackageDir = os.path.dirname(module.file)
+
+                for path, dir_list, file_list in os.walk(top=sourcePackageDir):
+                    ignored_files= ignorePatterns(path, file_list)
+                    for fname in file_list:
+                        if fname in ignored_files: continue
+                        source_full_path = os.path.abspath(os.path.join(path, fname))
+                        source_rel_path = os.path.relpath(source_full_path, sourcePackageDir)
+                        target_rel_path = os.path.relpath(
+                            os.path.join(targetPackageDir, source_rel_path),
+                            self.targetDir
+                        )
+                        self.file_copier.mark_file_to_copy(
+                            from_path=source_full_path,
+                            to_rel_path=target_rel_path
+                        )
                 if not os.path.exists(targetPackageDir):
                     if not self.silent:
                         print("Copying data from package", module.name + "...")
@@ -686,6 +717,9 @@ class Freezer:
                     parts.pop()
                     parts.append(os.path.basename(module.file))
                     target_name = os.path.join(targetDir, *parts)
+                    self.file_copier.mark_file_to_copy(
+                        from_path=module.file,
+                        to_rel_path=os.path.relpath(target_name,self.targetDir))
                     self._CopyFile(
                         module.file,
                         target_name,
@@ -738,6 +772,11 @@ class Freezer:
                 if module.parent is not None:
                     path = os.pathsep.join([origPath] + module.parent.path)
                     os.environ["PATH"] = path
+
+
+                tmptarg = os.path.relpath(target, self.targetDir)
+                self.file_copier.mark_file_to_copy(from_path=module.file,
+                                                   to_rel_path=tmptarg)
                 self._CopyFile(
                     module.file,
                     target,
@@ -785,6 +824,10 @@ class Freezer:
                     for fileName in fileNames:
                         fullSourceName = os.path.join(path, fileName)
                         fullTargetName = os.path.join(fullTargetDir, fileName)
+
+                        relTarg = os.path.relpath(fullTargetName, self.targetDir)
+                        self.file_copier.mark_file_to_copy(from_path=fullSourceName,
+                                                           to_rel_path=fileName)
                         self._CopyFile(
                             fullSourceName,
                             fullTargetName,
@@ -794,6 +837,9 @@ class Freezer:
             else:
                 # Copy regular files.
                 fullName = os.path.join(targetDir, targetFileName)
+                self.file_copier.mark_file_to_copy(
+                    from_path=sourceFileName,
+                    to_rel_path=os.path.relpath(fullName, self.targetDir))
                 self._CopyFile(
                     sourceFileName,
                     fullName,
@@ -803,6 +849,9 @@ class Freezer:
         # do a final pass to clean up dependency references in Mach-O files.
         if sys.platform == "darwin":
             self.darwinTracker.finalizeReferences()
+
+        self.file_copier.add_dependencies()
+        self.file_copier.copy_all_files(target_path=self.targetDir + "_2")
         return
 
 
