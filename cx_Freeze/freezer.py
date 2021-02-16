@@ -241,8 +241,10 @@ class Freezer:
 
         # Ensure the copy of default python libraries
         dependent_files = set()
+        # TODO: figure out why we need both of these. It seems like sys.executable is a dependency of exe.base?
         dependent_files.update(self._GetDependentFiles(exe.base))
         dependent_files.update(self._GetDependentFiles(sys.executable))
+
         for name in self._GetDefaultBinIncludes():
             normalized_name = os.path.normcase(name)
             found = False
@@ -276,20 +278,26 @@ class Freezer:
                 cachedReference = self.darwinTracker.getCachedReferenceTo(sourcePath=source)
                 self.file_copier.mark_file_to_copy(
                     from_path=source,
-                    to_rel_path=os.path.relpath(target, self.targetDir))
+                    to_rel_path=os.path.relpath(target, self.targetDir),
+                    copy_dependencies=True,
+                    include_mode=True
+                )
                 self._CopyFile( source, target,
                                 copyDependentFiles=True, includeMode=True,
                                 machOReference=cachedReference )
             else:
                 self.file_copier.mark_file_to_copy( from_path=source,
-                                                    to_rel_path=os.path.basename(source))
+                                                    to_rel_path=os.path.basename(source),
+                                                    copy_dependencies=True,
+                                                    include_mode=True)
                 self._CopyFile(
                     source, target, copyDependentFiles=True, includeMode=True
                 )
         target_path = os.path.join(self.targetDir, exe.target_name)
         self.file_copier.mark_file_to_copy(from_path=exe.base,
                                            to_rel_path=exe.target_name,
-                                           force_write_access=True)
+                                           force_write_access=True,
+                                           include_mode=True)
         self._CopyFile(
             exe.base,
             target_path,
@@ -493,8 +501,8 @@ class Freezer:
                         continue
                     target_name = os.path.join(targetDir, otherName)
                     self.file_copier.mark_file_to_copy(from_path=sourceName,
-                                                       to_rel_path=otherName,
-                                                       force_write_access=True)
+                                                       to_rel_path=otherName
+                                                       )
                     self._CopyFile(
                         sourceName, target_name, copyDependentFiles=False
                     )
@@ -719,7 +727,10 @@ class Freezer:
                     target_name = os.path.join(targetDir, *parts)
                     self.file_copier.mark_file_to_copy(
                         from_path=module.file,
-                        to_rel_path=os.path.relpath(target_name,self.targetDir))
+                        to_rel_path=os.path.relpath(target_name,self.targetDir),
+                        copy_dependencies=True,
+                        relative_source=True
+                    )
                     self._CopyFile(
                         module.file,
                         target_name,
@@ -730,6 +741,10 @@ class Freezer:
                     if module.path is not None:
                         parts.append("__init__")
                     target_name = os.path.join(targetDir, *parts) + ".pyc"
+                    self.file_copier.mark_file_to_create(
+                        to_rel_path=os.path.relpath(target_name,self.targetDir),
+                        data=data
+                    )
                     with open(target_name, "wb") as fp:
                         fp.write(data)
 
@@ -776,7 +791,9 @@ class Freezer:
 
                 tmptarg = os.path.relpath(target, self.targetDir)
                 self.file_copier.mark_file_to_copy(from_path=module.file,
-                                                   to_rel_path=tmptarg)
+                                                   to_rel_path=tmptarg,
+                                                   copy_dependencies=True,
+                                                   relative_source=True)
                 self._CopyFile(
                     module.file,
                     target,
@@ -827,7 +844,9 @@ class Freezer:
 
                         relTarg = os.path.relpath(fullTargetName, self.targetDir)
                         self.file_copier.mark_file_to_copy(from_path=fullSourceName,
-                                                           to_rel_path=fileName)
+                                                           to_rel_path=fileName,
+                                                           copy_dependencies=True,
+                                                           relative_source=True)
                         self._CopyFile(
                             fullSourceName,
                             fullTargetName,
@@ -839,7 +858,10 @@ class Freezer:
                 fullName = os.path.join(targetDir, targetFileName)
                 self.file_copier.mark_file_to_copy(
                     from_path=sourceFileName,
-                    to_rel_path=os.path.relpath(fullName, self.targetDir))
+                    to_rel_path=os.path.relpath(fullName, self.targetDir),
+                    copy_dependencies=True,
+                    relative_source=True
+                )
                 self._CopyFile(
                     sourceFileName,
                     fullName,
@@ -851,7 +873,7 @@ class Freezer:
             self.darwinTracker.finalizeReferences()
 
         self.file_copier.add_dependencies()
-        self.file_copier.copy_all_files(target_path=self.targetDir + "_2")
+        self.file_copier.copy_all_files(dest_root=self.targetDir + "_2")
         return
 
 
