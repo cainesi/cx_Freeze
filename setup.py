@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 WIN32 = sys.platform == "win32"
+DARWIN = sys.platform == "darwin"
 
 if sys.version_info < (3, 6, 0):
     sys.exit("Python3 versions lower than 3.6.0 are not supported.")
@@ -164,10 +165,19 @@ if __name__ == "__main__":
     else:
         libraries = []
     depends = ["source/bases/Common.c"]
+
+    console_compile_args = []
+    console_link_args = []
+    if DARWIN:
+        # cause the Console bootstrap to be runnable on old version of OSX.
+        console_compile_args = ["-mmacosx-version-min=10.12"]
+        console_link_args = ["-mmacosx-version-min=10.14"]
     console = Extension(
         "cx_Freeze.bases.Console",
         ["source/bases/Console.c"],
         depends=depends,
+        extra_compile_args=console_compile_args,
+        extra_link_args=console_link_args,
         libraries=libraries,
     )
     extensions = [console]
