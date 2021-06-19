@@ -211,8 +211,9 @@ if __name__ == "__main__":
     console_link_args = []
     if DARWIN:
         # cause the Console bootstrap to be runnable on old version of OSX.
+        # equivalent to setting MACOSX_DEPLOYMENT_TARGET environment variable
         console_compile_args = ["-mmacosx-version-min=10.12"]
-        console_link_args = ["-mmacosx-version-min=10.14"]
+        console_link_args = ["-mmacosx-version-min=10.12"]
     console = Extension(
         "cx_Freeze.bases.Console",
         ["source/bases/Console.c"],
